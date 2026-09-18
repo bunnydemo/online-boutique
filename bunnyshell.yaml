@@ -1,0 +1,214 @@
+kind: Environment
+name: online-boutique
+type: primary
+
+environmentVariables:
+  # Pinned upstream release for all services we do NOT build from source.
+  OB_VERSION: v0.10.7
+  OB_REGISTRY: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo
+
+components:
+  # ---------------------------------------------------------------------------
+  # frontend — BUILT FROM THIS REPO.
+  # This is the only component that rebuilds on a code change, which keeps
+  # ephemeral / PR environments fast (~1-2 min) while the rest start instantly.
+  # ---------------------------------------------------------------------------
+  - kind: Application
+    name: frontend
+    gitRepo: 'https://github.com/bunnydemo/online-boutique.git'
+    gitBranch: main
+    gitApplicationPath: /src/frontend
+    dependsOn:
+      - adservice
+      - cartservice
+      - checkoutservice
+      - currencyservice
+      - productcatalogservice
+      - recommendationservice
+      - shippingservice
+    dockerCompose:
+      build:
+        context: .
+        dockerfile: Dockerfile
+      ports:
+        - '80:8080'
+      environment:
+        PORT: '8080'
+        PRODUCT_CATALOG_SERVICE_ADDR: 'productcatalogservice:3550'
+        CURRENCY_SERVICE_ADDR: 'currencyservice:7000'
+        CART_SERVICE_ADDR: 'cartservice:7070'
+        RECOMMENDATION_SERVICE_ADDR: 'recommendationservice:8080'
+        SHIPPING_SERVICE_ADDR: 'shippingservice:50051'
+        CHECKOUT_SERVICE_ADDR: 'checkoutservice:5050'
+        AD_SERVICE_ADDR: 'adservice:9555'
+        ENABLE_PROFILER: '0'
+      deploy:
+        resources:
+          limits:
+            cpus: '1'
+            memory: 256M
+          reservations:
+            cpus: '0.1'
+            memory: 64M
+    hosts:
+      - hostname: 'boutique-{{ env.base_domain }}'
+        path: /
+        servicePort: 80
+
+  # ---------------------------------------------------------------------------
+  # Backing microservices — upstream prebuilt images, nothing to build.
+  # Component names are load-bearing: they become the in-cluster DNS names
+  # that the service-to-service addresses above resolve to.
+  # ---------------------------------------------------------------------------
+  - kind: Service
+    name: productcatalogservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/productcatalogservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '3550:3550'
+      environment:
+        PORT: '3550'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: currencyservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/currencyservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '7000:7000'
+      environment:
+        PORT: '7000'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: cartservice
+    dependsOn:
+      - redis-cart
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/cartservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '7070:7070'
+      environment:
+        REDIS_ADDR: 'redis-cart:6379'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 256M }
+          reservations: { cpus: '0.2', memory: 64M }
+
+  - kind: Service
+    name: recommendationservice
+    dependsOn:
+      - productcatalogservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/recommendationservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '8080:8080'
+      environment:
+        PORT: '8080'
+        PRODUCT_CATALOG_SERVICE_ADDR: 'productcatalogservice:3550'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 450M }
+          reservations: { cpus: '0.1', memory: 220M }
+
+  - kind: Service
+    name: shippingservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/shippingservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '50051:50051'
+      environment:
+        PORT: '50051'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: paymentservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/paymentservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '50051:50051'
+      environment:
+        PORT: '50051'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: emailservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/emailservice:{{ env.vars.OB_VERSION }}'
+      # Upstream quirk: the Service listens on 5000 but the container binds 8080.
+      ports:
+        - '5000:8080'
+      environment:
+        PORT: '8080'
+        DISABLE_PROFILER: '1'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: checkoutservice
+    dependsOn:
+      - productcatalogservice
+      - shippingservice
+      - paymentservice
+      - emailservice
+      - currencyservice
+      - cartservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/checkoutservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '5050:5050'
+      environment:
+        PORT: '5050'
+        PRODUCT_CATALOG_SERVICE_ADDR: 'productcatalogservice:3550'
+        SHIPPING_SERVICE_ADDR: 'shippingservice:50051'
+        PAYMENT_SERVICE_ADDR: 'paymentservice:50051'
+        EMAIL_SERVICE_ADDR: 'emailservice:5000'
+        CURRENCY_SERVICE_ADDR: 'currencyservice:7000'
+        CART_SERVICE_ADDR: 'cartservice:7070'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 128M }
+          reservations: { cpus: '0.1', memory: 64M }
+
+  - kind: Service
+    name: adservice
+    dockerCompose:
+      image: '{{ env.vars.OB_REGISTRY }}/adservice:{{ env.vars.OB_VERSION }}'
+      ports:
+        - '9555:9555'
+      environment:
+        PORT: '9555'
+      deploy:
+        resources:
+          limits: { cpus: '0.5', memory: 400M }
+          reservations: { cpus: '0.2', memory: 180M }
+
+  - kind: Database
+    name: redis-cart
+    dockerCompose:
+      image: 'redis:alpine'
+      ports:
+        - '6379:6379'
+      deploy:
+        resources:
+          limits: { cpus: '0.3', memory: 256M }
+          reservations: { cpus: '0.07', memory: 200M }

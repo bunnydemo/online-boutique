@@ -1,0 +1,17 @@
+This project is derived from the Online Boutique sample application:
+
+    https://github.com/GoogleCloudPlatform/microservices-demo
+    Copyright 2018-2026 Google LLC
+    Licensed under the Apache License, Version 2.0
+
+Modifications made for this repository:
+
+  * Only the `frontend` service source is vendored here (`src/frontend`),
+    taken from upstream release v0.10.7. All other services are consumed
+    as prebuilt upstream container images.
+  * Added `bunnyshell.yaml`, a Bunnyshell environment definition, to run
+    the full application as an ephemeral environment.
+  * The upstream Kubernetes manifests, Helm chart, Kustomize bases,
+    Terraform and Istio configuration are not included.
+
+The Apache 2.0 license text is retained in LICENSE.
