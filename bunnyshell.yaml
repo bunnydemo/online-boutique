@@ -17,7 +17,7 @@ components:
     name: frontend
     gitRepo: 'https://github.com/bunnydemo/online-boutique.git'
     gitBranch: main
-    gitApplicationPath: /src/frontend
+    gitApplicationPath: src/frontend
     dependsOn:
       - adservice
       - cartservice
@@ -28,7 +28,8 @@ components:
       - shippingservice
     dockerCompose:
       build:
-        context: .
+        # Context is relative to the repository root, not gitApplicationPath.
+        context: ./src/frontend
         dockerfile: Dockerfile
       ports:
         - '80:8080'
